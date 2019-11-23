@@ -15,16 +15,14 @@ import wget
 from PIL import Image, ImageTk
 from webcolors import hex_to_rgb
 
+from utils import safe_div
+
 warnings.simplefilter(action='ignore', category=FutureWarning)
 warnings.simplefilter(action='ignore', category=DeprecationWarning)
 tf.compat.v1.enable_eager_execution()
 np.set_printoptions(formatter={'float': lambda x: "{0:0.3f}".format(x)})
 
 base_folder = os.path.dirname(__file__)
-
-
-def safe_div(x, y):
-    return 0 if y == 0 else x / y
 
 
 def is_polygon_dark(hex_color):
