@@ -1,21 +1,20 @@
 import json
 import os
-import re
 import runpy
-import statistics
 import tkinter
 import warnings
-import numpy as np
-import pandas as pd
-import tensorflow as tf
 from threading import Thread
 from tkinter import Button, Canvas, Frame, OptionMenu, N, Toplevel, Label
 
+import numpy as np
+import pandas as pd
+import tensorflow as tf
 import wget
 from PIL import Image, ImageTk
 from webcolors import hex_to_rgb
 
-from utils import safe_div
+from models import Team, TeamStats
+from utils import get_dictionary_item_by_property
 
 warnings.simplefilter(action='ignore', category=FutureWarning)
 warnings.simplefilter(action='ignore', category=DeprecationWarning)
@@ -23,6 +22,10 @@ tf.compat.v1.enable_eager_execution()
 np.set_printoptions(formatter={'float': lambda x: "{0:0.3f}".format(x)})
 
 base_folder = os.path.dirname(__file__)
+
+
+def get_team_by_name(team_name) -> Team:
+    return get_dictionary_item_by_property(teams, 'name', team_name)
 
 
 def is_polygon_dark(hex_color):
@@ -64,6 +67,7 @@ def download_data():
 
 def show_predicted_results(loss_percent, draw_percent, win_percent):
     msg_results = Toplevel()
+    msg_results.grab_set()
     msg_results.wm_title('Prediction results')
 
     result = 'win: %d%%\ndraw: %d%%\nloss: %d%%' % (win_percent, draw_percent, loss_percent)
@@ -75,95 +79,49 @@ def show_predicted_results(loss_percent, draw_percent, win_percent):
 
 
 def predict_result():
-    def init_team_data():
+
+    def convert_stats_to_summary(team_data: TeamStats, side):
         return {
-            'lost_ball': 0, 'own_half_lost_ball': 0, 'ball_recovery': 0, 'ball_recovery_in_opp_half': 0,
-            'ball_recovery_in_own_half': 0, 'tackles': 0, 'tackles_success': 0, 'foul': 0, 'yellow_card': 0,
-            'red_card': 0, 'penalty_kick': 0, 'penalty_shot_goal': 0, 'regular_goals': 0, 'attempts_on_goal': 0,
-            'shots_inside_the_area': 0, 'shots_outside_the_area': 0, 'shots_on_target': 0, 'shots_off_target': 0,
-            'left_side_attacks': 0, 'left_side_attacks_with_shot': 0, 'center_attacks': 0, 'center_attacks_with_shot': 0,
-            'right_side_attacks': 0, 'right_side_attacks_with_shot': 0, 'crosses': 0, 'direct_crosses_into_the_area': 0,
-            'passes': 0, 'attacking_passes': 0, 'key_passes': 0, 'air_challenge': 0, 'air_challenge_won': 0,
-            'ground_challenge': 0, 'ground_challenge_won': 0, 'dribbles': 0, 'won_dribbles': 0
+            'ball_possession_%s' % side: team_data.ball_possession,
+            'own_half_ball_losses_%s' % side: team_data.own_half_ball_losses,
+            'opponent_half_ball_recoveries_%s' % side: team_data.opponent_half_ball_recoveries,
+            'own_half_ball_recoveries_%s' % side: team_data.own_half_ball_recoveries,
+            'successful_tackles_%s' % side: team_data.successful_tackles,
+            'fouls_%s' % side: team_data.fouls,
+            'yellow_cards_%s' % side: team_data.yellow_cards,
+            'red_cards_%s' % side: team_data.red_cards,
+            'penalty_kick_goals_%s' % side: team_data.penalty_kick_goals,
+            'shots_on_goal_%s' % side: team_data.shots_on_goal,
+            'shots_inside_the_area_%s' % side: team_data.shots_inside_the_area,
+            'shots_outside_the_area_%s' % side: team_data.shots_outside_the_area,
+            'shots_on_target_%s' % side: team_data.shots_on_target,
+            'shots_off_target_%s' % side: team_data.shots_off_target,
+            'shots_after_right_side_attacks_%s' % side: team_data.shots_after_right_side_attacks,
+            'shots_after_center_attacks_%s' % side: team_data.shots_after_center_attacks,
+            'shots_after_left_side_attacks_%s' % side: team_data.shots_after_left_side_attacks,
+            'direct_crosses_into_the_area_%s' % side: team_data.direct_crosses_into_the_area,
+            'attacking_passes_%s' % side: team_data.attacking_passes,
+            'key_passes_%s' % side: team_data.key_passes,
+            'air_challenges_won_%s' % side: team_data.air_challenges_won,
+            'ground_challenges_won_%s' % side: team_data.ground_challenges_won,
+            'dribbles_won_%s' % side: team_data.dribbles_won,
         }
 
-    def summarize_team_data(total_team_data, field_player):
-        return {
-            'lost_ball': total_team_data['lost_ball'] + field_player.get('lostBall', 0),
-            'own_half_lost_ball': total_team_data['own_half_lost_ball'] + field_player.get('ownHalfLostBall', 0),
-            'ball_recovery': total_team_data['ball_recovery'] + field_player.get('ballRecovery', 0),
-            'ball_recovery_in_opp_half': total_team_data['ball_recovery_in_opp_half'] + field_player.get('ballRecoveryInOppHalf', 0),
-            'ball_recovery_in_own_half': total_team_data['ball_recovery_in_own_half'] + field_player.get('ballRecoveryInOwnHalf', 0),
-            'tackles': total_team_data['tackles'] + field_player.get('tackles', 0),
-            'tackles_success': total_team_data['tackles_success'] + field_player.get('tacklesSuccess', 0),
-            'foul': total_team_data['foul'] + field_player.get('foul', 0),
-            'yellow_card': total_team_data['yellow_card'] + field_player.get('YellowCard', 0),
-            'red_card': total_team_data['red_card'] + field_player.get('RedCard', 0),
-            'penalty_kick': total_team_data['penalty_kick'] + field_player.get('PenaltyKick', 0),
-            'penalty_shot_goal': total_team_data['penalty_shot_goal'] + field_player.get('PenaltyShot_Goal', 0),
-            'regular_goals': total_team_data['regular_goals'] + field_player.get('GoalRegular', 0),
-            'attempts_on_goal': total_team_data['attempts_on_goal'] + field_player.get('AttemptonGoal', 0),
-            'shots_inside_the_area': total_team_data['shots_inside_the_area'] + field_player.get('ShotInsidetheArea', 0),
-            'shots_outside_the_area': total_team_data['shots_outside_the_area'] + field_player.get('ShotOutsidetheArea', 0),
-            'shots_on_target': total_team_data['shots_on_target'] + field_player.get('OnTarget', 0),
-            'shots_off_target': total_team_data['shots_off_target'] + field_player.get('OffTarget', 0),
-            'left_side_attacks': total_team_data['left_side_attacks'] + field_player.get('leftSideAttack', 0),
-            'left_side_attacks_with_shot': total_team_data['left_side_attacks_with_shot'] + field_player.get('leftSideAttackWithShot', 0),
-            'center_attacks': total_team_data['center_attacks'] + field_player.get('centerAttack', 0),
-            'center_attacks_with_shot': total_team_data['center_attacks_with_shot'] + field_player.get('centerAttackWithShot', 0),
-            'right_side_attacks': total_team_data['right_side_attacks'] + field_player.get('rightSideAttack', 0),
-            'right_side_attacks_with_shot': total_team_data['right_side_attacks_with_shot'] + field_player.get('rightSideAttackWithShot', 0),
-            'crosses': total_team_data['crosses'] + field_player.get('Cross', 0),
-            'direct_crosses_into_the_area': total_team_data['direct_crosses_into_the_area'] + field_player.get('DirectCrossintotheArea', 0),
-            'passes': total_team_data['passes'] + field_player.get('passes', 0),
-            'attacking_passes': total_team_data['attacking_passes'] + field_player.get('attackingPasses', 0),
-            'key_passes': total_team_data['key_passes'] + field_player.get('keyPasses', 0),
-            'air_challenge': total_team_data['air_challenge'] + field_player.get('airChallenge', 0),
-            'air_challenge_won': total_team_data['air_challenge_won'] + field_player.get('wonAirChallenge', 0),
-            'ground_challenge': total_team_data['ground_challenge'] + field_player.get('groundChallenge', 0),
-            'ground_challenge_won': total_team_data['ground_challenge_won'] + field_player.get('wonGroundChallenge', 0),
-            'dribbles': total_team_data['dribbles'] + field_player.get('dribble', 0),
-            'won_dribbles': total_team_data['won_dribbles'] + field_player.get('wonDribble', 0)
-        }
-
-    def calc_stats(players_data, ball_possession, side):
-        return {
-            'ball_possession_%s' % side: ball_possession,
-            'own_half_ball_losses_%s' % side: safe_div(players_data['own_half_lost_ball'], players_data['lost_ball']),
-            'opponent_half_ball_recoveries_%s' % side: safe_div(players_data['ball_recovery_in_opp_half'], players_data['ball_recovery']),
-            'own_half_ball_recoveries_%s' % side: safe_div(players_data['ball_recovery_in_own_half'], players_data['ball_recovery']),
-            'successful_tackles_%s' % side: safe_div(players_data['tackles_success'], players_data['tackles']),
-            'fouls_%s' % side: safe_div(players_data['foul'], players_data['tackles']),
-            'yellow_cards_%s' % side: safe_div(players_data['yellow_card'], players_data['foul']),
-            'red_cards_%s' % side: safe_div(players_data['red_card'], players_data['foul']),
-            'penalty_kick_goals_%s' % side: safe_div(players_data['penalty_shot_goal'], players_data['penalty_kick']),
-            'shots_on_goal_%s' % side: safe_div(players_data['regular_goals'], players_data['attempts_on_goal']),
-            'shots_inside_the_area_%s' % side: safe_div(players_data['shots_inside_the_area'], players_data['attempts_on_goal']),
-            'shots_outside_the_area_%s' % side: safe_div(players_data['shots_outside_the_area'], players_data['attempts_on_goal']),
-            'shots_on_target_%s' % side: safe_div(players_data['shots_on_target'], players_data['attempts_on_goal']),
-            'shots_off_target_%s' % side: safe_div(players_data['shots_off_target'], players_data['attempts_on_goal']),
-            'shots_after_right_side_attacks_%s' % side: safe_div(players_data['right_side_attacks_with_shot'], players_data['right_side_attacks']),
-            'shots_after_center_attacks_%s' % side: safe_div(players_data['center_attacks_with_shot'], players_data['center_attacks']),
-            'shots_after_left_side_attacks_%s' % side: safe_div(players_data['left_side_attacks_with_shot'], players_data['left_side_attacks']),
-            'direct_crosses_into_the_area_%s' % side: safe_div(players_data['direct_crosses_into_the_area'], players_data['crosses']),
-            'attacking_passes_%s' % side: safe_div(players_data['attacking_passes'], players_data['passes']),
-            'key_passes_%s' % side: safe_div(players_data['key_passes'], players_data['attacking_passes']),
-            'air_challenges_won_%s' % side: safe_div(players_data['air_challenge_won'], players_data['air_challenge']),
-            'ground_challenges_won_%s' % side: safe_div(players_data['ground_challenge_won'], players_data['ground_challenge']),
-            'dribbles_won_%s' % side: safe_div(players_data['won_dribbles'], players_data['dribbles']),
-        }
-
-    left_team_data = init_team_data()
+    left_team_data = TeamStats()
+    left_team = get_team_by_name(team_left.get())
     for left_field_player in left_field_players:
-        player = teams[teams_map[team_left.get()]]['players'][left_field_player['player_id']]['stats']
-        left_team_data = summarize_team_data(left_team_data, player)
-    left_players_stats_summary = calc_stats(left_team_data, teams[teams_map[team_left.get()]]['possession'], '0')
+        player = left_team.get_player_by_id(left_field_player['player_id'])
+        left_team_data.add_player_stats(player)
+    left_team_data.ball_possession = left_team.possession
+    left_players_stats_summary = convert_stats_to_summary(left_team_data, '0')
 
-    right_team_data = init_team_data()
+    right_team_data = TeamStats()
+    right_team = get_team_by_name(team_right.get())
     for right_field_player in right_field_players:
-        player = teams[teams_map[team_right.get()]]['players'][right_field_player['player_id']]['stats']
-        right_team_data = summarize_team_data(right_team_data, player)
-    right_players_stats_summary = calc_stats(right_team_data, teams[teams_map[team_right.get()]]['possession'], '1')
+        player = right_team.get_player_by_id(right_field_player['player_id'])
+        right_team_data.add_player_stats(player)
+    right_team_data.ball_possession = right_team.possession
+    right_players_stats_summary = convert_stats_to_summary(right_team_data, '1')
 
     stats_summary = {**left_players_stats_summary, **right_players_stats_summary}
     input_data_frame = pd.DataFrame(stats_summary, index=[0])
@@ -173,8 +131,6 @@ def predict_result():
 
 
 def process_players():
-    players_stat_id_map = {}
-    teams_map_dic = {}
     teams_dic = {}
     players_json_path = os.path.join(base_folder, 'resources', 'players.json')
     with open(players_json_path, 'r', encoding='utf8') as f:
@@ -188,42 +144,23 @@ def process_players():
                 team = data_store['data'][player_id]['teamId']
                 if team:
                     if team['id'] not in teams_dic:
-                        teams_map_dic[team['hebrewName']] = team['id']
-                        teams_dic[team['id']] = {}
-                        teams_dic[team['id']]['name'] = team['hebrewName']
-                        teams_dic[team['id']]['color'] = team['color'] if 'color' in team else '#fff'
-                        teams_dic[team['id']]['goalie_color'] = team['goalieColor'] if 'goalieColor' in team else '#fff'
-                        teams_dic[team['id']]['players'] = {}
-                    players = teams_dic[team['id']]['players']
-                    if player_id not in players:
-                        players[player_id] = {}
-                        players[player_id]['shirt_number'] = data_store['data'][player_id]['shirtNumber']
-                        players[player_id]['position'] = data_store['data'][player_id]['position']
-                        players[player_id]['first_name'] = data_store['data'][player_id]['firstName']
-                        players[player_id]['last_name'] = data_store['data'][player_id]['lastName']
-                        stats = data_store['data'][player_id]['stats']['902']['19/20'][0]
-                        players[player_id]['stats'] = stats
-                        players_stat_id_map[stats['playerInstatId']] = player_id
-        for team_id in teams_dic:
-            if len(teams_dic[team_id]['players'].keys()) < 11 and teams_dic[team_id]['name'] in teams_map_dic:
-                del teams_map_dic[teams_dic[team_id]['name']]
+                        team_id = int(team['id'])
+                        teams_dic[team_id] = Team(team_id, team)
+                    current_team = teams_dic[team['id']]
+                    current_team.add_player(int(player_id), data_store['data'][player_id])
     teams_json_path = os.path.join(base_folder, 'resources', 'teams.json')
     with open(teams_json_path, 'r', encoding='utf8') as f:
         data_store = json.load(f)
         team_ids = data_store['data'].keys()
         for team_id in team_ids:
             if int(team_id) in teams_dic:
-                possession = []
                 season = data_store['data'][team_id]['stats']['902']['19/20']
-                for game_index in season.keys():
-                    if season[game_index]['stage'] == 'RegularSeason':
-                        possession.append(season[game_index]['ballPossession'])
-                teams_dic[int(team_id)]['possession'] = statistics.mean(possession) / 100
+                teams_dic[int(team_id)].set_possession(season)
     lst_to_delete = list(map(str, list(teams_dic.keys())) - data_store['data'].keys())
     for to_del in lst_to_delete:
         del teams_dic[int(to_del)]
     process_latest_lineups(teams_dic)
-    return teams_dic, teams_map_dic, players_stat_id_map
+    return teams_dic
 
 
 def process_latest_lineups(teams_dic):
@@ -240,11 +177,11 @@ def process_latest_lineups(teams_dic):
                     curr_game = curr_round['games']['objects'][game_id]
                     home_team = curr_game['homeTeamId']
                     away_team = curr_game['awayTeamId']
-                    if 'latest_lineup' not in teams_dic[home_team['id']]:
-                        teams_dic[home_team['id']]['latest_lineup'] = curr_game['lineups']['first_team'][0]['lineup'][0]['main'][0]
+                    if teams_dic[home_team['id']].latest_lineup is None:
+                        teams_dic[home_team['id']].set_latest_lineup(curr_game['lineups']['first_team'][0]['lineup'][0]['main'][0])
                         num_of_lineups_found += 1
-                    if 'latest_lineup' not in teams_dic[away_team['id']]:
-                        teams_dic[away_team['id']]['latest_lineup'] = curr_game['lineups']['second_team'][0]['lineup'][0]['main'][0]
+                    if teams_dic[away_team['id']].latest_lineup is None:
+                        teams_dic[away_team['id']].set_latest_lineup(curr_game['lineups']['second_team'][0]['lineup'][0]['main'][0])
                         num_of_lineups_found += 1
                 if len(teams_dic.keys()) == num_of_lineups_found:
                     return
@@ -282,7 +219,7 @@ def init_fields():
 def init_field(parent, team_var, formation_var, column, side):
     frm_field_menu = Frame(parent)
     frm_field_menu.grid(column=column, row=0, sticky=tkinter.NW)
-    opt_field_team = OptionMenu(frm_field_menu, team_var, *teams_map.keys())
+    opt_field_team = OptionMenu(frm_field_menu, team_var, teams_names)
     opt_field_team.grid(column=0, row=0, sticky=tkinter.NW)
     opt_field_formation = OptionMenu(frm_field_menu, formation_var, *resources['formations'].keys())
     opt_field_formation.grid(column=1, row=0, sticky=tkinter.NW)
@@ -305,21 +242,21 @@ def init_all_players(parent, team_var, column, side, lst_players):
         lst_players = Frame(parent)
         lst_players.grid(column=column + 1, row=1, sticky=N)
 
-    player_color = teams[teams_map[team_var.get()]]['color']
-    goalie_color = teams[teams_map[team_var.get()]]['goalie_color']
-    player_ids = teams[teams_map[team_var.get()]]['players']
+    team = get_team_by_name(team_var.get())
+    player_color = team.player_uniform_color
+    goalie_color = team.goalie_uniform_color
     col = 0
     row = 0
     i = 0
     global left_players
     players_arr = left_players if side == 'left' else right_players
     for player in players_arr:
-        player['canvas'].grid_forget();
+        player['canvas'].grid_forget()
     players_arr.clear()
-    for player_id in player_ids:
-        shirt_number = teams[teams_map[team_var.get()]]['players'][player_id]['shirt_number']
-        position = teams[teams_map[team_var.get()]]['players'][player_id]['position']
-        last_name = teams[teams_map[team_var.get()]]['players'][player_id]['last_name']
+    for player_id, player in team.players.items():
+        shirt_number = player.shirt_number
+        position = player.position
+        last_name = player.last_name
         canvas_player = Canvas(lst_players, width=80, height=90)
         polygon_color = goalie_color if position == 'goalie' else player_color
         font_color = '#fff' if is_polygon_dark(polygon_color) else '#000'
@@ -437,7 +374,7 @@ def set_player(side):
     field_canvas.itemconfig(field_player, outline='#000', width=1)
 
 
-def draw_formation(canvas_field, formation, team_id, side):
+def draw_formation(canvas_field, formation, team_name, side):
     global left_field_players
     global right_field_players
     field_players = left_field_players if side == 'left' else right_field_players
@@ -450,8 +387,9 @@ def draw_formation(canvas_field, formation, team_id, side):
         canvas_field.delete(field_player['txt_name'])
         index += 1
     field_players.clear()
-    player_color = teams[team_id]['color']
-    goalie_color = teams[team_id]['goalie_color']
+    team = get_team_by_name(team_name)
+    player_color = team.player_uniform_color
+    goalie_color = team.goalie_uniform_color
     formation_map = resources['formations'][formation.get()]['points']
     num_of_points = len(resources['shirt_path'])
     index = 0
@@ -481,8 +419,8 @@ def init_vars():
     right_selected_player = -1
     right_selected_field_player = -1
     canvas_field_left, canvas_field_right = init_fields()
-    draw_formation(canvas_field_left, formation_left, teams_map[team_left.get()], 'left')
-    draw_formation(canvas_field_right, formation_right, teams_map[team_right.get()], 'right')
+    draw_formation(canvas_field_left, formation_left, team_left.get(), 'left')
+    draw_formation(canvas_field_right, formation_right, team_right.get(), 'right')
 
 
 def on_team_changed(side):
@@ -491,7 +429,8 @@ def on_team_changed(side):
     lst_players = lst_players_left if side == 'left' else lst_players_right
     init_all_players(None, team, -1, side, lst_players)
 
-    formation.set(get_team_formation(team.get()))
+    latest_lineup_formation = get_team_by_name(team.get()).latest_lineup.formation
+    formation.set(latest_lineup_formation)
 
     field_players = left_field_players if side == 'left' else right_field_players
     init_latest_players(field_players, team.get(), formation.get())
@@ -501,38 +440,27 @@ def on_formation_changed(side):
     canvas_field = canvas_field_left if side == 'left' else canvas_field_right
     formation = formation_left if side == 'left' else formation_right
     team = team_left.get() if side == 'left' else team_right.get()
-    draw_formation(canvas_field, formation, teams_map[team], side)
+    draw_formation(canvas_field, formation, team, side)
 
 
-def get_team_formation(team_id):
-    delimiter = '-'
-    formation_parts = re.findall(r'\d+', teams[teams_map[team_id]]['latest_lineup']['starting_tactic'])
-    return delimiter.join(list(map(str, formation_parts)))
-
-
-def init_latest_players(field_players, team_id, formation):
+def init_latest_players(field_players, team_name, formation):
     player_positions = resources['formations'][formation]['positions']
-    players = teams[teams_map[team_id]]['latest_lineup']['player']
-    for player in players:
-        if player['starting_position_name'] == 'Substitute player':
-            continue
-        player_in_stat_id = player['id']
-        player_id = players_id_stat_id_dic[int(player_in_stat_id)]
-        shirt_number = player['num']
-        name = teams[teams_map[team_id]]['players'][player_id]['first_name']
-        starting_position_name = player['starting_position_name']
-        player_index = player_positions[starting_position_name]
-        field_players[player_index]['player_id'] = player_id
-        field_players[player_index]['shirt_number'] = shirt_number
-        field_players[player_index]['name'] = name
+    latest_lineup = get_team_by_name(team_name).latest_lineup.players
+    for player in latest_lineup:
+        player_index = player_positions[player.position]
+        field_players[player_index]['player_id'] = player.id
+        field_players[player_index]['shirt_number'] = player.shirt_number
+        field_players[player_index]['name'] = player.name
         field_canvas = field_players[player_index]['canvas']
         txt_shirt_number = field_players[player_index]['txt_shirt_number']
         txt_name = field_players[player_index]['txt_name']
-        field_canvas.itemconfig(txt_shirt_number, text=shirt_number)
-        field_canvas.itemconfig(txt_name, text=name)
+        field_canvas.itemconfig(txt_shirt_number, text=player.shirt_number)
+        field_canvas.itemconfig(txt_name, text=player.name)
 
 
-teams, teams_map, players_id_stat_id_dic = process_players()
+teams = process_players()
+teams_names = list(map(lambda team: team.name, teams.values()))
+
 window = tkinter.Tk()
 window.geometry('1700x1000')
 resources = {
@@ -643,10 +571,10 @@ left_field_players = []
 left_selected_player = -1
 left_selected_field_player = -1
 team_left = tkinter.StringVar(window)
-team_left.set(list(teams_map.keys())[0])
+team_left.set(teams_names[0])
 team_left.trace('w', lambda context, index, mode, side='left': on_team_changed(side))
 formation_left = tkinter.StringVar(window)
-latest_formation_left = get_team_formation(team_left.get())
+latest_formation_left = get_team_by_name(team_left.get()).latest_lineup.formation
 formation_left.set(latest_formation_left)
 formation_left.trace('w', lambda context, index, mode, side='left': on_formation_changed(side))
 
@@ -657,10 +585,10 @@ right_field_players = []
 right_selected_player = -1
 right_selected_field_player = -1
 team_right = tkinter.StringVar(window)
-team_right.set(list(teams_map.keys())[1])
+team_right.set(teams_names[1])
 team_right.trace('w', lambda context, index, mode, side='right': on_team_changed(side))
 formation_right = tkinter.StringVar(window)
-latest_formation_right = get_team_formation(team_right.get())
+latest_formation_right = get_team_by_name(team_right.get()).latest_lineup.formation
 formation_right.set(latest_formation_right)
 formation_right.trace('w', lambda context, index, mode, side='right': on_formation_changed(side))
 
