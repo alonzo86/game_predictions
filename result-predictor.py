@@ -4,7 +4,7 @@ import runpy
 import tkinter
 import warnings
 from threading import Thread
-from tkinter import Button, Canvas, Frame, OptionMenu, N, Toplevel, Label
+from tkinter import Button, Canvas, Frame, OptionMenu, N, Toplevel
 
 import numpy as np
 import pandas as pd
@@ -13,7 +13,7 @@ import wget
 from PIL import Image, ImageTk
 from webcolors import hex_to_rgb
 
-from models import Team, TeamStats
+from models import Team, TeamStats, FieldPlayer, SubstitutePlayer, UITeam
 from utils import get_dictionary_item_by_property
 
 warnings.simplefilter(action='ignore', category=FutureWarning)
@@ -22,6 +22,12 @@ tf.compat.v1.enable_eager_execution()
 np.set_printoptions(formatter={'float': lambda x: "{0:0.3f}".format(x)})
 
 base_folder = os.path.dirname(__file__)
+
+
+class EventArgs:
+    def __init__(self, ui_team: UITeam, index: int):
+        self.ui_team = ui_team
+        self.index = index
 
 
 def get_team_by_name(team_name) -> Team:
@@ -65,60 +71,74 @@ def download_data():
     process.start()
 
 
-def show_predicted_results(loss_percent, draw_percent, win_percent):
+def show_predicted_results(win_percent, draw_percent, loss_percent, home_name, home_color, away_name, away_color):
     msg_results = Toplevel()
     msg_results.grab_set()
     msg_results.wm_title('Prediction results')
 
-    result = 'win: %d%%\ndraw: %d%%\nloss: %d%%' % (win_percent, draw_percent, loss_percent)
-    lbl_results = Label(msg_results, text=result)
-    lbl_results.grid(row=0, column=0)
+    canvas_bars = Canvas(msg_results, width=300, height=200)
 
-    b = Button(msg_results, text="Okay", command=msg_results.destroy)
-    b.grid(row=1, column=0)
+    bar_height_factor = 2
+    bottom_line = 160
+
+    canvas_bars.create_line(20, bottom_line, 280, bottom_line)
+
+    canvas_bars.create_rectangle(20, bottom_line, 80, bottom_line - win_percent * bar_height_factor, fill=home_color)
+    canvas_bars.create_text(50, bottom_line - win_percent * bar_height_factor - 10, font='Times 10 bold', text='%.2f%%' % win_percent)
+    canvas_bars.create_text(50, bottom_line + 10, font='Times 10 bold', text=home_name)
+
+    canvas_bars.create_rectangle(120, bottom_line, 180, bottom_line - draw_percent * bar_height_factor, fill='#dedede')
+    canvas_bars.create_text(150, bottom_line - draw_percent * bar_height_factor - 10, font='Times 10 bold', text='%.2f%%' % draw_percent)
+    canvas_bars.create_text(150, bottom_line + 10, font='Times 10 bold', text='Draw')
+
+    canvas_bars.create_rectangle(220, bottom_line, 280, bottom_line - loss_percent * bar_height_factor, fill=away_color)
+    canvas_bars.create_text(250, bottom_line - loss_percent * bar_height_factor - 10, font='Times 10 bold', text='%.2f%%' % loss_percent)
+    canvas_bars.create_text(250, bottom_line + 10, font='Times 10 bold', text=away_name)
+
+    canvas_bars.pack()
 
 
 def predict_result():
 
-    def convert_stats_to_summary(team_data: TeamStats, side):
+    def convert_stats_to_summary(team_data: TeamStats, team_index):
         return {
-            'ball_possession_%s' % side: team_data.ball_possession,
-            'own_half_ball_losses_%s' % side: team_data.own_half_ball_losses,
-            'opponent_half_ball_recoveries_%s' % side: team_data.opponent_half_ball_recoveries,
-            'own_half_ball_recoveries_%s' % side: team_data.own_half_ball_recoveries,
-            'successful_tackles_%s' % side: team_data.successful_tackles,
-            'fouls_%s' % side: team_data.fouls,
-            'yellow_cards_%s' % side: team_data.yellow_cards,
-            'red_cards_%s' % side: team_data.red_cards,
-            'penalty_kick_goals_%s' % side: team_data.penalty_kick_goals,
-            'shots_on_goal_%s' % side: team_data.shots_on_goal,
-            'shots_inside_the_area_%s' % side: team_data.shots_inside_the_area,
-            'shots_outside_the_area_%s' % side: team_data.shots_outside_the_area,
-            'shots_on_target_%s' % side: team_data.shots_on_target,
-            'shots_off_target_%s' % side: team_data.shots_off_target,
-            'shots_after_right_side_attacks_%s' % side: team_data.shots_after_right_side_attacks,
-            'shots_after_center_attacks_%s' % side: team_data.shots_after_center_attacks,
-            'shots_after_left_side_attacks_%s' % side: team_data.shots_after_left_side_attacks,
-            'direct_crosses_into_the_area_%s' % side: team_data.direct_crosses_into_the_area,
-            'attacking_passes_%s' % side: team_data.attacking_passes,
-            'key_passes_%s' % side: team_data.key_passes,
-            'air_challenges_won_%s' % side: team_data.air_challenges_won,
-            'ground_challenges_won_%s' % side: team_data.ground_challenges_won,
-            'dribbles_won_%s' % side: team_data.dribbles_won,
+            'ball_possession_%s' % team_index: team_data.ball_possession,
+            'own_half_ball_losses_%s' % team_index: team_data.own_half_ball_losses,
+            'opponent_half_ball_recoveries_%s' % team_index: team_data.opponent_half_ball_recoveries,
+            'own_half_ball_recoveries_%s' % team_index: team_data.own_half_ball_recoveries,
+            'successful_tackles_%s' % team_index: team_data.successful_tackles,
+            'fouls_%s' % team_index: team_data.fouls,
+            'yellow_cards_%s' % team_index: team_data.yellow_cards,
+            'red_cards_%s' % team_index: team_data.red_cards,
+            'penalty_kick_goals_%s' % team_index: team_data.penalty_kick_goals,
+            'shots_on_goal_%s' % team_index: team_data.shots_on_goal,
+            'shots_inside_the_area_%s' % team_index: team_data.shots_inside_the_area,
+            'shots_outside_the_area_%s' % team_index: team_data.shots_outside_the_area,
+            'shots_on_target_%s' % team_index: team_data.shots_on_target,
+            'shots_off_target_%s' % team_index: team_data.shots_off_target,
+            'shots_after_right_side_attacks_%s' % team_index: team_data.shots_after_right_side_attacks,
+            'shots_after_center_attacks_%s' % team_index: team_data.shots_after_center_attacks,
+            'shots_after_left_side_attacks_%s' % team_index: team_data.shots_after_left_side_attacks,
+            'direct_crosses_into_the_area_%s' % team_index: team_data.direct_crosses_into_the_area,
+            'attacking_passes_%s' % team_index: team_data.attacking_passes,
+            'key_passes_%s' % team_index: team_data.key_passes,
+            'air_challenges_won_%s' % team_index: team_data.air_challenges_won,
+            'ground_challenges_won_%s' % team_index: team_data.ground_challenges_won,
+            'dribbles_won_%s' % team_index: team_data.dribbles_won,
         }
 
     left_team_data = TeamStats()
-    left_team = get_team_by_name(team_left.get())
-    for left_field_player in left_field_players:
-        player = left_team.get_player_by_id(left_field_player['player_id'])
+    left_team = get_team_by_name(home_team.name.get())
+    for left_field_player in home_team.field_players:
+        player = left_team.get_player_by_id(left_field_player.player_id)
         left_team_data.add_player_stats(player)
     left_team_data.ball_possession = left_team.possession
     left_players_stats_summary = convert_stats_to_summary(left_team_data, '0')
 
     right_team_data = TeamStats()
-    right_team = get_team_by_name(team_right.get())
-    for right_field_player in right_field_players:
-        player = right_team.get_player_by_id(right_field_player['player_id'])
+    right_team = get_team_by_name(away_team.name.get())
+    for right_field_player in away_team.field_players:
+        player = right_team.get_player_by_id(right_field_player.player_id)
         right_team_data.add_player_stats(player)
     right_team_data.ball_possession = right_team.possession
     right_players_stats_summary = convert_stats_to_summary(right_team_data, '1')
@@ -127,7 +147,7 @@ def predict_result():
     input_data_frame = pd.DataFrame(stats_summary, index=[0])
     input_data = np.array(input_data_frame)
     results = prediction_model.predict(input_data)
-    show_predicted_results(results[0][0] * 100, results[0][1] * 100, results[0][2] * 100)
+    show_predicted_results(results[0][0] * 100, results[0][1] * 100, results[0][2] * 100, left_team.name, left_team.player_uniform_color, right_team.name, right_team.player_uniform_color)
 
 
 def process_players():
@@ -175,13 +195,13 @@ def process_latest_lineups(teams_dic):
             for game_id in curr_round['games']['objects'].keys():
                 if curr_round['games']['objects'][game_id]['status'] == 3:
                     curr_game = curr_round['games']['objects'][game_id]
-                    home_team = curr_game['homeTeamId']
-                    away_team = curr_game['awayTeamId']
-                    if teams_dic[home_team['id']].latest_lineup is None:
-                        teams_dic[home_team['id']].set_latest_lineup(curr_game['lineups']['first_team'][0]['lineup'][0]['main'][0])
+                    home_team_id = curr_game['homeTeamId']['id']
+                    away_team_id = curr_game['awayTeamId']['id']
+                    if teams_dic[home_team_id].latest_lineup is None:
+                        teams_dic[home_team_id].set_latest_lineup(curr_game['lineups']['first_team'][0]['lineup'][0]['main'][0])
                         num_of_lineups_found += 1
-                    if teams_dic[away_team['id']].latest_lineup is None:
-                        teams_dic[away_team['id']].set_latest_lineup(curr_game['lineups']['second_team'][0]['lineup'][0]['main'][0])
+                    if teams_dic[away_team_id].latest_lineup is None:
+                        teams_dic[away_team_id].set_latest_lineup(curr_game['lineups']['second_team'][0]['lineup'][0]['main'][0])
                         num_of_lineups_found += 1
                 if len(teams_dic.keys()) == num_of_lineups_found:
                     return
@@ -206,24 +226,23 @@ def init_top_menu():
 
 
 def init_fields():
-    global lst_players_left, lst_players_right
     frm_fields = Frame(window)
     frm_fields.grid(column=0, row=1)
-    left_canvas = init_field(frm_fields, team_left, formation_left, 0, 'left')
-    lst_players_left = init_all_players(frm_fields, team_left, 0, 'left', None)
-    right_canvas = init_field(frm_fields, team_right, formation_right, 2, 'right')
-    lst_players_right = init_all_players(frm_fields, team_right, 2, 'right', None)
+    left_canvas = init_field(frm_fields, home_team, 0)
+    init_substitute_players(frm_fields, 0, home_team)
+    right_canvas = init_field(frm_fields, away_team, 2)
+    init_substitute_players(frm_fields, 2, away_team)
     return left_canvas, right_canvas
 
 
-def init_field(parent, team_var, formation_var, column, side):
+def init_field(parent, ui_team: UITeam, column):
     frm_field_menu = Frame(parent)
     frm_field_menu.grid(column=column, row=0, sticky=tkinter.NW)
-    opt_field_team = OptionMenu(frm_field_menu, team_var, teams_names)
+    opt_field_team = OptionMenu(frm_field_menu, ui_team.name, teams_names)
     opt_field_team.grid(column=0, row=0, sticky=tkinter.NW)
-    opt_field_formation = OptionMenu(frm_field_menu, formation_var, *resources['formations'].keys())
+    opt_field_formation = OptionMenu(frm_field_menu, ui_team.formation, *resources['formations'].keys())
     opt_field_formation.grid(column=1, row=0, sticky=tkinter.NW)
-    btn_set_player = Button(frm_field_menu, text='Set Player', command=lambda: set_player(side))
+    btn_set_player = Button(frm_field_menu, text='Set Player', command=lambda: set_player(ui_team))
     btn_set_player.grid(column=2, row=0)
 
     frm_field = Frame(parent)
@@ -237,160 +256,108 @@ def init_field(parent, team_var, formation_var, column, side):
     return canvas_field
 
 
-def init_all_players(parent, team_var, column, side, lst_players):
-    if lst_players is None:
-        lst_players = Frame(parent)
-        lst_players.grid(column=column + 1, row=1, sticky=N)
+def init_substitute_players(parent, column, ui_team: UITeam):
+    if ui_team.players is None:
+        ui_team.players = Frame(parent)
+        ui_team.players.grid(column=column + 1, row=1, sticky=N)
 
-    team = get_team_by_name(team_var.get())
+    team = get_team_by_name(ui_team.name.get())
     player_color = team.player_uniform_color
     goalie_color = team.goalie_uniform_color
     col = 0
     row = 0
     i = 0
-    global left_players
-    players_arr = left_players if side == 'left' else right_players
-    for player in players_arr:
-        player['canvas'].grid_forget()
-    players_arr.clear()
+    for player in ui_team.substitute_players:
+        player.canvas.grid_forget()
+    ui_team.substitute_players.clear()
     for player_id, player in team.players.items():
         shirt_number = player.shirt_number
         position = player.position
         last_name = player.last_name
-        canvas_player = Canvas(lst_players, width=80, height=90)
+        canvas_player = Canvas(ui_team.players, width=80, height=90)
         polygon_color = goalie_color if position == 'goalie' else player_color
         font_color = '#fff' if is_polygon_dark(polygon_color) else '#000'
-        player_poly = canvas_player.create_polygon(resources['shirt_path'], outline='#000', fill=polygon_color)
+        player_canvas_id = canvas_player.create_polygon(resources['shirt_path'], outline='#000', fill=polygon_color)
         canvas_player.create_text(35, 30, fill=font_color, font='Times 20 bold', text=shirt_number)
         canvas_player.create_text(35, 50, fill=font_color, font='Times 8', text=last_name)
         canvas_player.create_text(35, 70, fill='#000', font='Times 8', text=position)
-        data = {'side': side, 'index': i}
+        data = EventArgs(ui_team, i)
         canvas_player.bind('<Button-1>', lambda event, arg=data: replacement_player_click(arg))
         canvas_player.grid(column=col, row=row)
-        players_arr.append(
-            {'canvas': canvas_player, 'player': player_poly, 'player_id': player_id, 'shirt_number': shirt_number,
-             'name': last_name})
+        ui_team.substitute_players.append(SubstitutePlayer(canvas_player, player_canvas_id, player_id, shirt_number, last_name))
         row += 1
         i += 1
         if row > 8:
             row = 0
             col += 1
-    return lst_players
 
 
-def replacement_player_click(data):
-    if data['side'] == 'left':
-        global left_selected_player
-        if left_selected_player > -1:
-            canvas = left_players[left_selected_player]['canvas']
-            player = left_players[left_selected_player]['player']
-            canvas.itemconfig(player, outline='#000', width=1)
-            if left_selected_player == data['index']:
-                left_selected_player = -1
-                return
-        left_selected_player = data['index']
-        canvas = left_players[left_selected_player]['canvas']
-        player = left_players[left_selected_player]['player']
-        canvas.itemconfig(player, outline='#ff0', width=3)
-    else:
-        global right_selected_player
-        if right_selected_player > -1:
-            canvas = right_players[right_selected_player]['canvas']
-            player = right_players[right_selected_player]['player']
-            canvas.itemconfig(player, outline='#000', width=1)
-            if right_selected_player == data['index']:
-                right_selected_player = -1
-                return
-        right_selected_player = data['index']
-        canvas = right_players[right_selected_player]['canvas']
-        player = right_players[right_selected_player]['player']
-        canvas.itemconfig(player, outline='#ff0', width=3)
+def replacement_player_click(data: EventArgs):
+    if data.ui_team.selected_substitute_player > -1:
+        canvas = data.ui_team.substitute_players[data.ui_team.selected_substitute_player].canvas
+        player_canvas_id = data.ui_team.substitute_players[data.ui_team.selected_substitute_player].player_canvas_id
+        canvas.itemconfig(player_canvas_id, outline='#000', width=1)
+        if data.ui_team.selected_substitute_player == data.index:
+            data.ui_team.selected_substitute_player = -1
+            return
+    data.ui_team.selected_substitute_player = data.index
+    canvas = data.ui_team.substitute_players[data.ui_team.selected_substitute_player].canvas
+    player_canvas_id = data.ui_team.substitute_players[data.ui_team.selected_substitute_player].player_canvas_id
+    canvas.itemconfig(player_canvas_id, outline='#ff0', width=3)
 
 
-def field_player_click(data):
-    if data['side'] == 'left':
-        global left_selected_field_player
-        if left_selected_field_player > -1:
-            canvas = left_field_players[left_selected_field_player]['canvas']
-            player = left_field_players[left_selected_field_player]['player']
-            canvas.itemconfig(player, outline='#000', width=1)
-            if left_selected_field_player == data['index']:
-                left_selected_field_player = -1
-                return
-        left_selected_field_player = data['index']
-        canvas = left_field_players[left_selected_field_player]['canvas']
-        player = left_field_players[left_selected_field_player]['player']
-        canvas.itemconfig(player, outline='#ff0', width=3)
-    else:
-        global right_selected_field_player
-        if right_selected_field_player > -1:
-            canvas = right_field_players[right_selected_field_player]['canvas']
-            player = right_field_players[right_selected_field_player]['player']
-            canvas.itemconfig(player, outline='#000', width=1)
-            if right_selected_field_player == data['index']:
-                right_selected_field_player = -1
-                return
-        right_selected_field_player = data['index']
-        canvas = right_field_players[right_selected_field_player]['canvas']
-        player = right_field_players[right_selected_field_player]['player']
-        canvas.itemconfig(player, outline='#ff0', width=3)
+def field_player_click(data: EventArgs):
+    if data.ui_team.selected_field_player > -1:
+        canvas = data.ui_team.field_players[data.ui_team.selected_field_player].canvas
+        player_canvas_id = data.ui_team.field_players[data.ui_team.selected_field_player].player_canvas_id
+        canvas.itemconfig(player_canvas_id, outline='#000', width=1)
+        if data.ui_team.selected_field_player == data.index:
+            data.ui_team.selected_field_player = -1
+            return
+    data.ui_team.selected_field_player = data.index
+    canvas = data.ui_team.field_players[data.ui_team.selected_field_player].canvas
+    player_canvas_id = data.ui_team.field_players[data.ui_team.selected_field_player].player_canvas_id
+    canvas.itemconfig(player_canvas_id, outline='#ff0', width=3)
 
 
-def set_player(side):
-    global right_selected_player, right_selected_field_player, left_selected_player, left_selected_field_player
-    players = right_players
-    selected_player = right_selected_player
-    field_players = right_field_players
-    selected_field_player = right_selected_field_player
-    if side == 'left':
-        players = left_players
-        selected_player = left_selected_player
-        field_players = left_field_players
-        selected_field_player = left_selected_field_player
+def set_player(ui_team: UITeam):
+    player_id = ui_team.substitute_players[ui_team.selected_substitute_player].player_id
+    shirt_number = ui_team.substitute_players[ui_team.selected_substitute_player].shirt_number
+    name = ui_team.substitute_players[ui_team.selected_substitute_player].name
+    ui_team.field_players[ui_team.selected_field_player].player_id = player_id
+    ui_team.field_players[ui_team.selected_field_player].shirt_number = shirt_number
+    ui_team.field_players[ui_team.selected_field_player].name = name
 
-    right_selected_player = -1
-    right_selected_field_player = -1
-    left_selected_player = -1
-    left_selected_field_player = -1
+    replacement_canvas = ui_team.substitute_players[ui_team.selected_substitute_player].canvas
+    field_canvas = ui_team.field_players[ui_team.selected_field_player].canvas
 
-    player_id = players[selected_player]['player_id']
-    shirt_number = players[selected_player]['shirt_number']
-    name = players[selected_player]['name']
-    field_players[selected_field_player]['player_id'] = player_id
-    field_players[selected_field_player]['shirt_number'] = shirt_number
-    field_players[selected_field_player]['name'] = name
+    shirt_number_canvas_id = ui_team.field_players[ui_team.selected_field_player].shirt_number_canvas_id
+    name_canvas_id = ui_team.field_players[ui_team.selected_field_player].name_canvas_id
+    field_canvas.itemconfig(shirt_number_canvas_id, text=shirt_number)
+    field_canvas.itemconfig(name_canvas_id, text=name)
 
-    replacement_canvas = players[selected_player]['canvas']
-    field_canvas = field_players[selected_field_player]['canvas']
+    player_canvas_id = ui_team.substitute_players[ui_team.selected_substitute_player].player_canvas_id
+    field_player_canvas_id = ui_team.field_players[ui_team.selected_field_player].player_canvas_id
+    replacement_canvas.itemconfig(player_canvas_id, outline='#000', width=1)
+    field_canvas.itemconfig(field_player_canvas_id, outline='#000', width=1)
 
-    txt_shirt_number = field_players[selected_field_player]['txt_shirt_number']
-    txt_name = field_players[selected_field_player]['txt_name']
-    field_canvas.itemconfig(txt_shirt_number, text=shirt_number)
-    field_canvas.itemconfig(txt_name, text=name)
-
-    player = players[selected_player]['player']
-    field_player = field_players[selected_field_player]['player']
-    replacement_canvas.itemconfig(player, outline='#000', width=1)
-    field_canvas.itemconfig(field_player, outline='#000', width=1)
+    ui_team.reset_selections()
 
 
-def draw_formation(canvas_field, formation, team_name, side):
-    global left_field_players
-    global right_field_players
-    field_players = left_field_players if side == 'left' else right_field_players
+def draw_formation(ui_team: UITeam):
     index = 0
-    for field_player in field_players:
+    for field_player in ui_team.field_players:
         tag = 'polygon_%s' % index
-        canvas_field.tag_unbind(tag, '<Button-1>')
-        canvas_field.delete(field_player['player'])
-        canvas_field.delete(field_player['txt_shirt_number'])
-        canvas_field.delete(field_player['txt_name'])
+        ui_team.canvas.tag_unbind(tag, '<Button-1>')
+        ui_team.canvas.delete(field_player.player_canvas_id)
+        ui_team.canvas.delete(field_player.shirt_number_canvas_id)
+        ui_team.canvas.delete(field_player.name_canvas_id)
         index += 1
-    field_players.clear()
-    team = get_team_by_name(team_name)
+    ui_team.field_players.clear()
+    team = get_team_by_name(ui_team.name.get())
     player_color = team.player_uniform_color
     goalie_color = team.goalie_uniform_color
-    formation_map = resources['formations'][formation.get()]['points']
+    formation_map = resources['formations'][ui_team.formation.get()]['points']
     num_of_points = len(resources['shirt_path'])
     index = 0
     for position in formation_map:
@@ -401,59 +368,47 @@ def draw_formation(canvas_field, formation, team_name, side):
         tag = 'polygon_%s' % index
         polygon_color = goalie_color if index == 0 else player_color
         font_color = '#fff' if is_polygon_dark(polygon_color) else '#000'
-        player = canvas_field.create_polygon(points, outline='#000', fill=polygon_color, tag=tag)
-        shirt_number = canvas_field.create_text(points[0] + 35, points[1] + 10, fill=font_color, font='Times 20 bold',
-                                                text='')
-        name = canvas_field.create_text(points[0] + 35, points[1] + 30, fill=font_color, font='Times 8', text='')
-        field_players.append(
-            {'canvas': canvas_field, 'player': player, 'txt_shirt_number': shirt_number, 'txt_name': name})
-        data = {'side': side, 'index': index}
-        canvas_field.tag_bind(tag, '<Button-1>', lambda event, arg=data: field_player_click(arg))
+        player_canvas_id = ui_team.canvas.create_polygon(points, outline='#000', fill=polygon_color, tag=tag)
+        shirt_number_canvas_id = ui_team.canvas.create_text(points[0] + 35, points[1] + 10, fill=font_color, font='Times 20 bold', text='')
+        name_canvas_id = ui_team.canvas.create_text(points[0] + 35, points[1] + 30, fill=font_color, font='Times 8', text='')
+        ui_team.field_players.append(FieldPlayer(ui_team.canvas, player_canvas_id, shirt_number_canvas_id, name_canvas_id))
+        data = EventArgs(ui_team, index)
+        ui_team.canvas.tag_bind(tag, '<Button-1>', lambda event, arg=data: field_player_click(arg))
         index += 1
 
 
 def init_vars():
-    global canvas_field_left, canvas_field_right, left_selected_player, left_selected_field_player, right_selected_player, right_selected_field_player
-    left_selected_player = -1
-    left_selected_field_player = -1
-    right_selected_player = -1
-    right_selected_field_player = -1
-    canvas_field_left, canvas_field_right = init_fields()
-    draw_formation(canvas_field_left, formation_left, team_left.get(), 'left')
-    draw_formation(canvas_field_right, formation_right, team_right.get(), 'right')
+    home_team.reset_selections()
+    away_team.reset_selections()
+    home_team.canvas, away_team.canvas = init_fields()
+    draw_formation(home_team)
+    draw_formation(away_team)
 
 
-def on_team_changed(side):
-    team = team_left if side == 'left' else team_right
-    formation = formation_left if side == 'left' else formation_right
-    lst_players = lst_players_left if side == 'left' else lst_players_right
-    init_all_players(None, team, -1, side, lst_players)
+def on_team_changed(ui_team: UITeam):
+    init_substitute_players(None, -1, ui_team)
 
-    latest_lineup_formation = get_team_by_name(team.get()).latest_lineup.formation
-    formation.set(latest_lineup_formation)
+    latest_lineup_formation = get_team_by_name(ui_team.name.get()).latest_lineup.formation
+    ui_team.formation.set(latest_lineup_formation)
 
-    field_players = left_field_players if side == 'left' else right_field_players
-    init_latest_players(field_players, team.get(), formation.get())
+    init_latest_players(ui_team)
 
 
-def on_formation_changed(side):
-    canvas_field = canvas_field_left if side == 'left' else canvas_field_right
-    formation = formation_left if side == 'left' else formation_right
-    team = team_left.get() if side == 'left' else team_right.get()
-    draw_formation(canvas_field, formation, team, side)
+def on_formation_changed(ui_team):
+    draw_formation(ui_team)
 
 
-def init_latest_players(field_players, team_name, formation):
-    player_positions = resources['formations'][formation]['positions']
-    latest_lineup = get_team_by_name(team_name).latest_lineup.players
+def init_latest_players(ui_team):
+    player_positions = resources['formations'][ui_team.formation.get()]['positions']
+    latest_lineup = get_team_by_name(ui_team.name.get()).latest_lineup.players
     for player in latest_lineup:
         player_index = player_positions[player.position]
-        field_players[player_index]['player_id'] = player.id
-        field_players[player_index]['shirt_number'] = player.shirt_number
-        field_players[player_index]['name'] = player.name
-        field_canvas = field_players[player_index]['canvas']
-        txt_shirt_number = field_players[player_index]['txt_shirt_number']
-        txt_name = field_players[player_index]['txt_name']
+        ui_team.field_players[player_index].player_id = player.id
+        ui_team.field_players[player_index].shirt_number = player.shirt_number
+        ui_team.field_players[player_index].name = player.name
+        field_canvas = ui_team.field_players[player_index].canvas
+        txt_shirt_number = ui_team.field_players[player_index].shirt_number_canvas_id
+        txt_name = ui_team.field_players[player_index].name_canvas_id
         field_canvas.itemconfig(txt_shirt_number, text=player.shirt_number)
         field_canvas.itemconfig(txt_name, text=player.name)
 
@@ -564,37 +519,21 @@ prediction_model = tf.keras.models.load_model(keras_file)
 
 txt_btn_update_data = tkinter.StringVar()
 
-canvas_field_left = None
-lst_players_left = None
-left_players = []
-left_field_players = []
-left_selected_player = -1
-left_selected_field_player = -1
-team_left = tkinter.StringVar(window)
-team_left.set(teams_names[0])
-team_left.trace('w', lambda context, index, mode, side='left': on_team_changed(side))
-formation_left = tkinter.StringVar(window)
-latest_formation_left = get_team_by_name(team_left.get()).latest_lineup.formation
-formation_left.set(latest_formation_left)
-formation_left.trace('w', lambda context, index, mode, side='left': on_formation_changed(side))
+home_default_name = teams_names[0]
+home_latest_formation = get_team_by_name(home_default_name).latest_lineup.formation
+home_team = UITeam(window, home_default_name, home_latest_formation)
+home_team.name.trace('w', lambda context, index, mode, ui_team=home_team: on_team_changed(ui_team))
+home_team.formation.trace('w', lambda context, index, mode, ui_team=home_team: on_formation_changed(ui_team))
 
-canvas_field_right = None
-lst_players_right = None
-right_players = []
-right_field_players = []
-right_selected_player = -1
-right_selected_field_player = -1
-team_right = tkinter.StringVar(window)
-team_right.set(teams_names[1])
-team_right.trace('w', lambda context, index, mode, side='right': on_team_changed(side))
-formation_right = tkinter.StringVar(window)
-latest_formation_right = get_team_by_name(team_right.get()).latest_lineup.formation
-formation_right.set(latest_formation_right)
-formation_right.trace('w', lambda context, index, mode, side='right': on_formation_changed(side))
+away_default_name = teams_names[1]
+away_latest_formation = get_team_by_name(away_default_name).latest_lineup.formation
+away_team = UITeam(window, away_default_name, away_latest_formation)
+away_team.name.trace('w', lambda context, index, mode, ui_team=away_team: on_team_changed(ui_team))
+away_team.formation.trace('w', lambda context, index, mode, ui_team=away_team: on_formation_changed(ui_team))
 
 init_top_menu()
 init_vars()
 
-init_latest_players(left_field_players, team_left.get(), formation_left.get())
-init_latest_players(right_field_players, team_right.get(), formation_right.get())
+init_latest_players(home_team)
+init_latest_players(away_team)
 window.mainloop()

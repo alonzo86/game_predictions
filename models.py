@@ -1,5 +1,6 @@
 import re
 import statistics
+from tkinter import Canvas, StringVar
 from typing import Optional
 
 from utils import safe_div, get_dictionary_item_by_property
@@ -280,3 +281,38 @@ class Team:
         delimiter = '-'
         formation_parts = re.findall(r'\d+', formation)
         return delimiter.join(list(map(str, formation_parts)))
+
+
+class SubstitutePlayer:
+    def __init__(self, canvas: Canvas, player_canvas_id: int, player_id: int, shirt_number: int, name):
+        self.canvas = canvas
+        self.player_canvas_id = player_canvas_id
+        self.shirt_number = shirt_number
+        self.player_id = player_id
+        self.name = name
+
+
+class FieldPlayer:
+    def __init__(self, canvas, player_canvas_id, shirt_number_canvas_id, name_canvas_id):
+        self.canvas = canvas
+        self.player_canvas_id = player_canvas_id
+        self.shirt_number_canvas_id = shirt_number_canvas_id
+        self.name_canvas_id = name_canvas_id
+
+
+class UITeam:
+    def __init__(self, window, name, formation):
+        self.canvas = None
+        self.players = None
+        self.substitute_players = []
+        self.field_players = []
+        self.selected_field_player = -1
+        self.selected_substitute_player = -1
+        self.name = StringVar(window)
+        self.name.set(name)
+        self.formation = StringVar(window)
+        self.formation.set(formation)
+
+    def reset_selections(self):
+        self.selected_field_player = -1
+        self.selected_substitute_player = -1
