@@ -242,8 +242,6 @@ def init_field(parent, ui_team: UITeam, column):
     opt_field_team.grid(column=0, row=0, sticky=tkinter.NW)
     opt_field_formation = OptionMenu(frm_field_menu, ui_team.formation, *resources['formations'].keys())
     opt_field_formation.grid(column=1, row=0, sticky=tkinter.NW)
-    btn_set_player = Button(frm_field_menu, text='Set Player', command=lambda: set_player(ui_team))
-    btn_set_player.grid(column=2, row=0)
 
     frm_field = Frame(parent)
     frm_field.grid(column=column, row=1, sticky=tkinter.N)
@@ -266,7 +264,7 @@ def init_substitute_players(parent, column, ui_team: UITeam):
     goalie_color = team.goalie_uniform_color
     col = 0
     row = 0
-    i = 0
+    index = 0
     for player in ui_team.substitute_players:
         player.canvas.grid_forget()
     ui_team.substitute_players.clear()
@@ -281,67 +279,14 @@ def init_substitute_players(parent, column, ui_team: UITeam):
         canvas_player.create_text(35, 30, fill=font_color, font='Times 20 bold', text=shirt_number)
         canvas_player.create_text(35, 50, fill=font_color, font='Times 8', text=last_name)
         canvas_player.create_text(35, 70, fill='#000', font='Times 8', text=position)
-        data = EventArgs(ui_team, i)
-        canvas_player.bind('<Button-1>', lambda event, arg=data: replacement_player_click(arg))
+        canvas_player.bind('<Button-1>', lambda event, arg=index: ui_team.select_player(False, arg))
         canvas_player.grid(column=col, row=row)
         ui_team.substitute_players.append(SubstitutePlayer(canvas_player, player_canvas_id, player_id, shirt_number, last_name))
         row += 1
-        i += 1
+        index += 1
         if row > 8:
             row = 0
             col += 1
-
-
-def replacement_player_click(data: EventArgs):
-    if data.ui_team.selected_substitute_player > -1:
-        canvas = data.ui_team.substitute_players[data.ui_team.selected_substitute_player].canvas
-        player_canvas_id = data.ui_team.substitute_players[data.ui_team.selected_substitute_player].player_canvas_id
-        canvas.itemconfig(player_canvas_id, outline='#000', width=1)
-        if data.ui_team.selected_substitute_player == data.index:
-            data.ui_team.selected_substitute_player = -1
-            return
-    data.ui_team.selected_substitute_player = data.index
-    canvas = data.ui_team.substitute_players[data.ui_team.selected_substitute_player].canvas
-    player_canvas_id = data.ui_team.substitute_players[data.ui_team.selected_substitute_player].player_canvas_id
-    canvas.itemconfig(player_canvas_id, outline='#ff0', width=3)
-
-
-def field_player_click(data: EventArgs):
-    if data.ui_team.selected_field_player > -1:
-        canvas = data.ui_team.field_players[data.ui_team.selected_field_player].canvas
-        player_canvas_id = data.ui_team.field_players[data.ui_team.selected_field_player].player_canvas_id
-        canvas.itemconfig(player_canvas_id, outline='#000', width=1)
-        if data.ui_team.selected_field_player == data.index:
-            data.ui_team.selected_field_player = -1
-            return
-    data.ui_team.selected_field_player = data.index
-    canvas = data.ui_team.field_players[data.ui_team.selected_field_player].canvas
-    player_canvas_id = data.ui_team.field_players[data.ui_team.selected_field_player].player_canvas_id
-    canvas.itemconfig(player_canvas_id, outline='#ff0', width=3)
-
-
-def set_player(ui_team: UITeam):
-    player_id = ui_team.substitute_players[ui_team.selected_substitute_player].player_id
-    shirt_number = ui_team.substitute_players[ui_team.selected_substitute_player].shirt_number
-    name = ui_team.substitute_players[ui_team.selected_substitute_player].name
-    ui_team.field_players[ui_team.selected_field_player].player_id = player_id
-    ui_team.field_players[ui_team.selected_field_player].shirt_number = shirt_number
-    ui_team.field_players[ui_team.selected_field_player].name = name
-
-    replacement_canvas = ui_team.substitute_players[ui_team.selected_substitute_player].canvas
-    field_canvas = ui_team.field_players[ui_team.selected_field_player].canvas
-
-    shirt_number_canvas_id = ui_team.field_players[ui_team.selected_field_player].shirt_number_canvas_id
-    name_canvas_id = ui_team.field_players[ui_team.selected_field_player].name_canvas_id
-    field_canvas.itemconfig(shirt_number_canvas_id, text=shirt_number)
-    field_canvas.itemconfig(name_canvas_id, text=name)
-
-    player_canvas_id = ui_team.substitute_players[ui_team.selected_substitute_player].player_canvas_id
-    field_player_canvas_id = ui_team.field_players[ui_team.selected_field_player].player_canvas_id
-    replacement_canvas.itemconfig(player_canvas_id, outline='#000', width=1)
-    field_canvas.itemconfig(field_player_canvas_id, outline='#000', width=1)
-
-    ui_team.reset_selections()
 
 
 def draw_formation(ui_team: UITeam):
@@ -372,14 +317,15 @@ def draw_formation(ui_team: UITeam):
         shirt_number_canvas_id = ui_team.canvas.create_text(points[0] + 35, points[1] + 10, fill=font_color, font='Times 20 bold', text='')
         name_canvas_id = ui_team.canvas.create_text(points[0] + 35, points[1] + 30, fill=font_color, font='Times 8', text='')
         ui_team.field_players.append(FieldPlayer(ui_team.canvas, player_canvas_id, shirt_number_canvas_id, name_canvas_id))
-        data = EventArgs(ui_team, index)
-        ui_team.canvas.tag_bind(tag, '<Button-1>', lambda event, arg=data: field_player_click(arg))
+        ui_team.canvas.tag_bind(tag, '<Button-1>', lambda event, arg=index: ui_team.select_player(True, arg))
         index += 1
 
 
+def on_player_selected(event_args: EventArgs):
+    event_args.ui_team.select_player(True, event_args.index)
+
+
 def init_vars():
-    home_team.reset_selections()
-    away_team.reset_selections()
     home_team.canvas, away_team.canvas = init_fields()
     draw_formation(home_team)
     draw_formation(away_team)

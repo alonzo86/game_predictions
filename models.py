@@ -301,18 +301,70 @@ class FieldPlayer:
 
 
 class UITeam:
+    class SelectedPlayer:
+        def __init__(self, is_field_player: bool, index: int):
+            self.is_field_player = is_field_player
+            self.index = index
+
     def __init__(self, window, name, formation):
         self.canvas = None
         self.players = None
         self.substitute_players = []
         self.field_players = []
-        self.selected_field_player = -1
-        self.selected_substitute_player = -1
+        self.selected_players = []
         self.name = StringVar(window)
         self.name.set(name)
         self.formation = StringVar(window)
         self.formation.set(formation)
 
-    def reset_selections(self):
-        self.selected_field_player = -1
-        self.selected_substitute_player = -1
+    def select_player(self, is_field_player: bool, index: int):
+        players_list = self.field_players if is_field_player else self.substitute_players
+        selected_player_index = next((i for i, selected_player in enumerate(self.selected_players) if selected_player.is_field_player == is_field_player and selected_player.index == index), -1)
+        if selected_player_index > -1:
+            canvas = players_list[index].canvas
+            player_canvas_id = players_list[index].player_canvas_id
+            canvas.itemconfig(player_canvas_id, outline='#000', width=1)
+            self.selected_players.pop(selected_player_index)
+            return
+        substitute_players = [selected_player for selected_player in self.selected_players if not selected_player.is_field_player]
+        if len(substitute_players) == 1 and not is_field_player:
+            selected_substitute_player_index = next((i for i, selected_player in enumerate(self.selected_players) if not selected_player.is_field_player), -1)
+            self.select_player(False, self.selected_players[selected_substitute_player_index].index)
+        self.selected_players.append(UITeam.SelectedPlayer(is_field_player, index))
+        canvas = players_list[index].canvas
+        player_canvas_id = players_list[index].player_canvas_id
+        canvas.itemconfig(player_canvas_id, outline='#ff0', width=3)
+        field_players = [selected_player for selected_player in self.selected_players if selected_player.is_field_player]
+        substitute_players = [selected_player for selected_player in self.selected_players if not selected_player.is_field_player]
+        if len(field_players) == 2:
+            self.__replace_players(field_players[0], field_players[1], True)
+        elif len(substitute_players) == 1 and len(field_players) == 1:
+            self.__replace_players(field_players[0], substitute_players[0])
+
+    def __replace_players(self, selected_player1: SelectedPlayer, selected_player2: SelectedPlayer, swap=False):
+        player1 = self.field_players[selected_player1.index]
+        player2 = self.field_players[selected_player2.index] if swap else self.substitute_players[selected_player2.index]
+        player1_id = player1.player_id
+        player1_shirt_number = player1.shirt_number
+        player1_name = player1.name
+        player1.player_id = player2.player_id
+        player1.shirt_number = player2.shirt_number
+        player1.name = player2.name
+
+        player1.canvas.itemconfig(player1.shirt_number_canvas_id, text=player1.shirt_number)
+        player1.canvas.itemconfig(player1.name_canvas_id, text=player1.name)
+
+        if swap:
+            player2.player_id = player1_id
+            player2.shirt_number = player1_shirt_number
+            player2.name = player1_name
+            player2.canvas.itemconfig(player2.shirt_number_canvas_id, text=player2.shirt_number)
+            player2.canvas.itemconfig(player2.name_canvas_id, text=player2.name)
+
+        self.__reset_selections()
+
+    def __reset_selections(self):
+        for selected_player in self.selected_players:
+            player = self.field_players[selected_player.index] if selected_player.is_field_player else self.substitute_players[selected_player.index]
+            player.canvas.itemconfig(player.player_canvas_id, outline='#000', width=1)
+        self.selected_players.clear()
