@@ -238,7 +238,7 @@ def init_fields():
 def init_field(parent, ui_team: UITeam, column):
     frm_field_menu = Frame(parent)
     frm_field_menu.grid(column=column, row=0, sticky=tkinter.NW)
-    opt_field_team = OptionMenu(frm_field_menu, ui_team.name, teams_names)
+    opt_field_team = OptionMenu(frm_field_menu, ui_team.name, *teams_names)
     opt_field_team.grid(column=0, row=0, sticky=tkinter.NW)
     opt_field_formation = OptionMenu(frm_field_menu, ui_team.formation, *resources['formations'].keys())
     opt_field_formation.grid(column=1, row=0, sticky=tkinter.NW)
@@ -298,6 +298,7 @@ def draw_formation(ui_team: UITeam):
         ui_team.canvas.delete(field_player.shirt_number_canvas_id)
         ui_team.canvas.delete(field_player.name_canvas_id)
         index += 1
+    previous_team_players = ui_team.field_players.copy()
     ui_team.field_players.clear()
     team = get_team_by_name(ui_team.name.get())
     player_color = team.player_uniform_color
@@ -319,6 +320,13 @@ def draw_formation(ui_team: UITeam):
         ui_team.field_players.append(FieldPlayer(ui_team.canvas, player_canvas_id, shirt_number_canvas_id, name_canvas_id))
         ui_team.canvas.tag_bind(tag, '<Button-1>', lambda event, arg=index: ui_team.select_player(True, arg))
         index += 1
+    for i, prev_player in enumerate(previous_team_players):
+        ui_team_player = ui_team.field_players[i]
+        ui_team_player.player_id = prev_player.player_id
+        ui_team_player.name = prev_player.name
+        ui_team_player.shirt_number = prev_player.shirt_number
+        ui_team_player.canvas.itemconfig(ui_team_player.shirt_number_canvas_id, text=ui_team_player.shirt_number)
+        ui_team_player.canvas.itemconfig(ui_team_player.name_canvas_id, text=ui_team_player.name)
 
 
 def on_player_selected(event_args: EventArgs):

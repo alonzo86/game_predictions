@@ -298,6 +298,9 @@ class FieldPlayer:
         self.player_canvas_id = player_canvas_id
         self.shirt_number_canvas_id = shirt_number_canvas_id
         self.name_canvas_id = name_canvas_id
+        self.player_id = None
+        self.name = None
+        self.shirt_number = None
 
 
 class UITeam:
